@@ -1,6 +1,14 @@
 
 #include <pcl/io/openni_grabber.h>
 #include <pcl/visualization/cloud_viewer.h>
+#include <pcl/point_types.h>
+#include <pcl/features/normal_3d.h>
+#include <pcl/ModelCoefficients.h>
+#include <pcl/io/pcd_io.h>
+#include <pcl/point_types.h>
+#include <pcl/sample_consensus/method_types.h>
+#include <pcl/sample_consensus/model_types.h>
+#include <pcl/segmentation/sac_segmentation.h>
 #include <stdlib.h>
 #include <iostream>
 #include <string>
@@ -12,16 +20,79 @@ using namespace std;
 using namespace cv;
 using namespace openni;
 pcl::visualization::CloudViewer viewer("PCL OpenNI Viewer");
+int threshold_value1 = 0;
+int threshold_value2 = 0;
+char* trackbar_value1 = "H_low Value";
+char* trackbar_value2 = "H_high Value";
+void Threshold_Demo(int, void*)
+{}
 void cloud_cb_(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr &cloud)
 {
+	Mat pic(480,640,CV_64FC1);
+
 	if (!viewer.wasStopped())
 	{
-		
-		Eigen::Quaternionf ori;
-		Eigen::Quaternionf ori1(1,100,100,100);
-		ori=cloud->sensor_orientation_;
+
+		/*
+		Eigen::Quaternionf ori1(1,0,0,0);
+		//cloud->sensor_orientation_ = ori1;
+		Eigen::Quaternionf ori=cloud->sensor_orientation_;
 		ori=ori1;
-		viewer.showCloud(cloud);
+
+		*/
+		for(int i=0;i<480;i++)
+			for(int j=0;j<640;j++)
+			{
+				//cout<< cloud->points[i*640+j].x<<" "<<cloud->points[i*640+j].y<<" "<<cloud->points[i*640+j].z<<endl;
+				pic.at<double>(i,j)=cloud->points[i*640+j].y;
+			}
+			double m1,m2;
+			minMaxIdx(pic, &m1, &m2);
+			pic=pic-m1;
+			pic.convertTo(pic,CV_8U,255/(m2-m1));
+			flip(pic,pic,1);
+			Mat pic1,pic2;
+			inRange(pic, threshold_value1, threshold_value2,pic1);
+			//inRange(pic, 60, 240,pic1);
+			//inRange(pic, 0, 60,pic2);
+			//pic=pic1+pic2;
+
+
+			cv::imshow("y",pic1);
+			char key = cv::waitKey(20);		
+			/*
+			pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients);
+			pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
+			// Create the segmentation object
+			pcl::SACSegmentation<pcl::PointXYZ> seg;
+			// Optional
+			seg.setOptimizeCoefficients (true);
+			// Mandatory
+			seg.setModelType (pcl::SACMODEL_PLANE);
+			seg.setMethodType (pcl::SAC_RANSAC);
+			seg.setDistanceThreshold (0.1);
+
+			seg.setInputCloud (cloud);
+			seg.segment (*inliers, *coefficients);
+
+			if (inliers->indices.size () == 0)
+			{
+			PCL_ERROR ("Could not estimate a planar model for the given dataset.");
+			return ;
+			}
+
+			std::cerr << "Model coefficients: " << coefficients->values[0] << " " 
+			<< coefficients->values[1] << " "
+			<< coefficients->values[2] << " " 
+			<< coefficients->values[3] << std::endl;
+
+			std::cerr << "Model inliers: " << inliers->indices.size () << std::endl;
+			for (size_t i = 0; i < inliers->indices.size (); ++i)
+			std::cerr << inliers->indices[i] << "    " << cloud->points[inliers->indices[i]].x << " "
+			<< cloud->points[inliers->indices[i]].y << " "
+			<< cloud->points[inliers->indices[i]].z << std::endl;
+			*/
+			viewer.showCloud(cloud);
 	}
 }
 
@@ -38,9 +109,18 @@ string num2str(int i){
 }
 int main(int argc, char** argv)
 {
-	Status result = STATUS_OK;
+	//pcl test
+	cv::namedWindow("BarValueThres");
+	const pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud;
+	Eigen::Quaternionf ori1(0,0,0,0);
+
+
+
+
+
 
 	//OpenNI2 image
+	Status result = STATUS_OK;
 	VideoFrameRef oniDepthImg;
 	VideoFrameRef oniColorImg;
 
@@ -58,7 +138,7 @@ int main(int argc, char** argv)
 		boost::bind(&cloud_cb_, _1);
 	interface->registerCallback(f);
 	interface->start();
-	
+
 	//【1】
 	// initialize OpenNI2
 	result = OpenNI::initialize();
@@ -105,7 +185,13 @@ int main(int argc, char** argv)
 	while (key != 27&&!viewer.wasStopped())
 	{
 		// read frame
-		
+		createTrackbar(trackbar_value1,
+			"BarValueThres", &threshold_value1,
+			255, Threshold_Demo);
+
+		createTrackbar(trackbar_value2,
+			"BarValueThres", &threshold_value2,
+			255, Threshold_Demo);
 		if (oniColorStream.readFrame(&oniColorImg) == STATUS_OK)
 		{
 			// convert data into OpenCV type
@@ -120,7 +206,7 @@ int main(int argc, char** argv)
 			cv::Mat cvRawImg16U(oniDepthImg.getHeight(), oniDepthImg.getWidth(), CV_16UC1, (void*)oniDepthImg.getData());
 			double m1, m2;
 			minMaxIdx(cvRawImg16U, &m1, &m2);
-			cout << m2<< endl;
+			//cout << m2<< endl;
 			//cvRawImg16U.convertTo(cvDepthImg, CV_8U, 255.0 / (oniDepthStream.getMaxPixelValue()));
 			flip(cvRawImg16U, cvRawImg16U, 1);
 			cvRawImg16U.convertTo(cvDepthImg, CV_8U, 255.0 / 6000);
@@ -163,76 +249,3 @@ int main(int argc, char** argv)
 
 
 
-//使用PCLVisualizer似乎只能这样
-//修改自Bastian Steder的openni_narf_keypoint_extraction.cpp
-/*
-#include <pcl/io/openni_grabber.h>
-#include "pcl/range_image/range_image_planar.h"
-#include "pcl/common/common_headers.h"
-#include "pcl/visualization/range_image_visualizer.h"
-#include "pcl/visualization/pcl_visualizer.h"
-#include "pcl/console/parse.h"
-
-using namespace pcl;
-using namespace pcl::visualization;
-boost::mutex depth_image_mutex;
-boost::shared_ptr<openni_wrapper::DepthImage> depth_image_ptr;
-bool received_new_depth_data = false;
-struct EventHelper
-{
-  void
-  depth_image_cb (const boost::shared_ptr<openni_wrapper::DepthImage>& depth_image)
-  {
-    if (depth_image_mutex.try_lock ())
-    {
-      depth_image_ptr = depth_image;
-      depth_image_mutex.unlock ();
-      received_new_depth_data = true;
-    }
-  }
-}event_helper;
-int main ()
-{
-  PCLVisualizer viewer ("Viewer");
-  openni_wrapper::OpenNIDriver& driver = openni_wrapper::OpenNIDriver::getInstance ();
-  pcl::Grabber* interface = new pcl::OpenNIGrabber ("#1");
-  boost::function<void (const boost::shared_ptr<openni_wrapper::DepthImage>&) > f_depth_image =
-    boost::bind (&EventHelper::depth_image_cb, &event_helper, _1);
-  boost::signals2::connection c_depth_image = interface->registerCallback (f_depth_image);
-  interface->start ();
-  boost::shared_ptr<RangeImagePlanar> range_image_planar_ptr (new RangeImagePlanar);
-  RangeImagePlanar& range_image_planar = *range_image_planar_ptr;
-  while (!viewer.wasStopped ())
-  {
-    viewer.spinOnce ();
-    bool got_new_range_image = false;
-    if (received_new_depth_data && depth_image_mutex.try_lock ())
-    {
-      received_new_depth_data = false;
-      const unsigned short* depth_map = depth_image_ptr->getDepthMetaData().Data();
-      range_image_planar.setDepthImage (depth_map, depth_image_ptr->getWidth (), depth_image_ptr->getHeight (),
- depth_image_ptr->getWidth ()/2,
- depth_image_ptr->getHeight ()/2,
- depth_image_ptr->getFocalLength(), depth_image_ptr->getFocalLength(),
- asinf (0.5f*float(depth_image_ptr->getWidth ())/float(depth_image_ptr->getFocalLength())) / (0.5f*float(depth_image_ptr->getWidth ())));
-      depth_image_mutex.unlock (); 
-      got_new_range_image = !range_image_planar.points.empty();
-    }
-    
-    if (!got_new_range_image)
-      continue;
-viewer.removePointCloud();pcl::PointXYZ tt;
-pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
-for(int i=0,j=range_image_planar.size();i<j;++i)
-tt.x=range_image_planar.points[i].x,
-tt.y=range_image_planar.points[i].y,
-tt.z=-range_image_planar.points[i].z,
-cloud->points.push_back(tt);//vector插入太慢了,怎么修改?
-cloud->width=range_image_planar.width;
-cloud->height=range_image_planar.height;
-    viewer.addPointCloud(cloud);
-  }
-
-  interface->stop ();
-}
-*/
